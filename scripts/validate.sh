@@ -34,13 +34,31 @@ podman run --rm \
   test rules /workspace/prometheus-rules-test.yml
 
 podman run --rm \
-  -v "$STACK_DIR:/workspace:ro" \
+  -v "$ROOT_DIR/k8s/dev:/workspace:ro" \
   docker.io/rancher/kubectl:v1.35.4 \
-  kustomize /workspace > "$TMP_DIR/rendered.yaml"
+  kustomize /workspace > "$TMP_DIR/rendered-stack.yaml"
 
 podman run --rm -i \
   ghcr.io/yannh/kubeconform:v0.6.7 \
-  -strict -summary - < "$TMP_DIR/rendered.yaml"
+  -strict -summary - < "$TMP_DIR/rendered-stack.yaml"
+
+podman run --rm \
+  -v "$ROOT_DIR/k8s/dev/namespace:/workspace:ro" \
+  docker.io/rancher/kubectl:v1.35.4 \
+  kustomize /workspace > "$TMP_DIR/rendered-namespace.yaml"
+
+podman run --rm -i \
+  ghcr.io/yannh/kubeconform:v0.6.7 \
+  -strict -summary - < "$TMP_DIR/rendered-namespace.yaml"
+
+podman run --rm \
+  -v "$ROOT_DIR/k8s/dev/bootstrap:/workspace:ro" \
+  docker.io/rancher/kubectl:v1.35.4 \
+  kustomize /workspace > "$TMP_DIR/rendered-bootstrap.yaml"
+
+podman run --rm -i \
+  ghcr.io/yannh/kubeconform:v0.6.7 \
+  -strict -summary - < "$TMP_DIR/rendered-bootstrap.yaml"
 
 podman run --rm \
   registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.16.0 \
