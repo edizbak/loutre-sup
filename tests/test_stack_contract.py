@@ -98,6 +98,44 @@ class StackContractTest(unittest.TestCase):
                 self.assertIn(":", image.rsplit("/", 1)[-1])
                 self.assertIn("requests", container["resources"])
                 self.assertIn("limits", container["resources"])
+                self.assertIn(
+                    "ephemeral-storage", container["resources"]["requests"]
+                )
+                self.assertIn("ephemeral-storage", container["resources"]["limits"])
+
+    def test_prometheus_storage_and_retention_are_capped(self):
+        deployment = next(
+            item
+            for item in self.by_kind.get("Deployment", [])
+            if item["metadata"]["name"] == "prometheus"
+        )
+        container = deployment["spec"]["template"]["spec"]["containers"][0]
+        self.assertIn("--storage.tsdb.retention.time=7d", container["args"])
+        self.assertIn("--storage.tsdb.retention.size=750MB", container["args"])
+        data_volume = next(
+            volume
+            for volume in deployment["spec"]["template"]["spec"]["volumes"]
+            if volume["name"] == "data"
+        )
+        self.assertEqual("1Gi", data_volume["emptyDir"]["sizeLimit"])
+
+    def test_dev_profile_avoids_unvalidated_host_access_and_persistence(self):
+        workload_documents = [
+            document
+            for document in self.objects
+            if document["kind"] in {"Deployment", "DaemonSet", "StatefulSet"}
+        ]
+        for workload in workload_documents:
+            pod_spec = workload["spec"]["template"]["spec"]
+            for volume in pod_spec.get("volumes", []):
+                self.assertNotIn("hostPath", volume)
+                self.assertNotIn("persistentVolumeClaim", volume)
+        container_names = {
+            container["name"]
+            for workload in workload_documents
+            for container in workload["spec"]["template"]["spec"]["containers"]
+        }
+        self.assertNotIn("node-exporter", container_names)
 
     def test_no_secret_material_is_committed(self):
         self.assertEqual([], self.by_kind.get("Secret", []))
@@ -122,6 +160,22 @@ class StackContractTest(unittest.TestCase):
         environment = {entry["name"]: entry for entry in grafana["env"]}
         self.assertEqual("false", environment["GF_AUTH_ANONYMOUS_ENABLED"]["value"])
         self.assertEqual("false", environment["GF_USERS_ALLOW_SIGN_UP"]["value"])
+
+    def test_inventory_script_is_read_only(self):
+        script_path = ROOT / "scripts" / "inventory.sh"
+        script = script_path.read_text(encoding="utf-8")
+        for forbidden in (
+            "kubectl apply",
+            "kubectl create",
+            "kubectl delete",
+            "kubectl patch",
+            "kubectl edit",
+            "kubectl get secrets",
+            "kubectl get secret",
+        ):
+            self.assertNotIn(forbidden, script)
+        self.assertIn("kubectl get nodes -o wide", script)
+        self.assertIn("kubectl get storageclass -o wide", script)
 
     def test_prometheus_scrapes_only_in_cluster_service_targets(self):
         config_path = STACK_DIR / "prometheus.yml"
@@ -157,7 +211,12 @@ class StackContractTest(unittest.TestCase):
             for alert in test.get("alert_rule_test", [])
         ]
         self.assertEqual(
-            {"MonitoringTargetDown", "KubernetesDeploymentUnavailable"},
+            {
+                "MonitoringTargetDown",
+                "KubernetesDeploymentUnavailable",
+                "KubernetesNodeNotReady",
+                "KubernetesNodeMetricsMissing",
+            },
             {alert["alertname"] for alert in alert_tests},
         )
 
@@ -195,6 +254,18 @@ class StackContractTest(unittest.TestCase):
         self.assertIn("sum by (phase) (kube_pod_status_phase)", expressions)
         self.assertIn(
             "sum by (namespace) (kube_deployment_status_replicas_available)",
+            expressions,
+        )
+        self.assertIn(
+            'kube_node_status_condition{condition="Ready",status="true"}',
+            expressions,
+        )
+        self.assertIn(
+            'sum(kube_pod_container_resource_requests{resource="cpu"})',
+            expressions,
+        )
+        self.assertIn(
+            'sum(kube_node_status_allocatable{resource="cpu"})',
             expressions,
         )
 

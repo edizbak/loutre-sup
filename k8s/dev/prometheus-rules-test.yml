@@ -25,6 +25,10 @@ tests:
         values: "3+0x11"
       - series: 'kube_deployment_status_replicas_available{namespace="demo", deployment="web"}'
         values: "1+0x11"
+      - series: 'kube_node_status_condition{node="server",condition="Ready",status="true"}'
+        values: "0+0x6"
+      - series: 'kube_node_info{node="server"}'
+        values: "1+0x6"
     alert_rule_test:
       - eval_time: 10m
         alertname: KubernetesDeploymentUnavailable
@@ -38,6 +42,18 @@ tests:
               description: >-
                 Deployment demo/web has fewer available replicas than desired
                 for ten minutes.
+      - eval_time: 5m
+        alertname: KubernetesNodeNotReady
+        exp_alerts:
+          - exp_labels:
+              node: server
+              condition: Ready
+              status: "true"
+              severity: critical
+            exp_annotations:
+              summary: Kubernetes node is not ready
+              description: >-
+                Node server has not reported Ready for five minutes.
   - interval: 1m
     input_series:
       - series: 'up{job="kube-state-metrics", instance="kube-state-metrics"}'
@@ -46,3 +62,18 @@ tests:
       - eval_time: 5m
         alertname: MonitoringTargetDown
         exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'up{job="kube-state-metrics", instance="kube-state-metrics"}'
+        values: "1+0x6"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: KubernetesNodeMetricsMissing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: Kubernetes node metrics are missing
+              description: >-
+                kube-state-metrics has not reported any Kubernetes node for five
+                minutes.

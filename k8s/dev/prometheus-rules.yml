@@ -21,3 +21,21 @@ groups:
           description: >-
             Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has fewer
             available replicas than desired for ten minutes.
+      - alert: KubernetesNodeNotReady
+        expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Kubernetes node is not ready
+          description: >-
+            Node {{ $labels.node }} has not reported Ready for five minutes.
+      - alert: KubernetesNodeMetricsMissing
+        expr: absent(kube_node_info)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Kubernetes node metrics are missing
+          description: >-
+            kube-state-metrics has not reported any Kubernetes node for five minutes.

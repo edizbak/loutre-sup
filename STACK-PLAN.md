@@ -10,14 +10,29 @@ Ce fichier décrit la conception, le séquencement et l'état d'implémentation.
 
 Un premier profil de développement non déployé est présent dans `k8s/dev/`. Il fournit Prometheus, kube-state-metrics, Grafana et un dashboard d'état minimal, avec Services internes, RBAC de lecture et stockage éphémère. Le profil est fait pour valider la configuration; ne pas le considérer comme une cible de production.
 
-L'inventaire du serveur reste nécessaire avant tout apply et avant de choisir stockage persistant, exposition/authentification, ressources définitives, métriques hôte (node-exporter), sondes externes ou alertes. Le profil n'est pas encore installé sur le cluster.
+L'inventaire du serveur a été reçu et analysé. Il reste nécessaire de confirmer les choix de production avant tout apply, notamment stockage/rétention, exposition/authentification, ressources définitives, métriques hôte (node-exporter), sondes externes et destinataires d'alertes. Le profil n'est pas installé sur le cluster.
+
+## Résultats de l'inventaire serveur
+
+L'inventaire en lecture seule fourni le 2026-11-05 confirme :
+
+- k3s `v1.35.4+k3s1` sur un seul nœud `control-plane` sous Debian 13; une perte du nœud correspond donc à une perte totale du cluster et de la stack locale.
+- Le nœud dispose de 4 vCPU et environ 8 Gio de RAM. À l'instant de l'inventaire, Metrics Server rapporte environ 4 % CPU et 38 % mémoire utilisés. Cela donne une photographie ponctuelle, pas une marge de capacité garantie.
+- Le disque racine est d'environ 59 Gio, avec environ 18 Gio libres (70 % utilisés). Les PVC existants MySQL et MinIO utilisent la classe `local-path`, `ReadWriteOnce`, `Delete`, sans expansion; aucun stockage partagé ou backup n'est visible dans cet inventaire.
+- Metrics Server est déjà déployé et son API `metrics.k8s.io` est disponible. Il fournit `kubectl top`, mais ne remplace pas Prometheus pour l'historique ni les règles d'alerte.
+- Il n'y a pas de `ResourceQuota`, `LimitRange` ou `NetworkPolicy` actuellement. ingress-nginx est le seul IngressClass; les routes publiques se trouvent dans le namespace `default`.
+- Des anciens pods `Completed`, `Error`, `ContainerStatusUnknown` et `Evicted` apparaissent dans la liste fournie alors que les déploiements courants étaient prêts. Le dashboard/alerting devra distinguer les pods contrôlés encore attendus des pods terminés ou anciens pour éviter les faux positifs.
+- Les règles dev couvrent l'indisponibilité des cibles scrappées, les replicas de déploiement indisponibles et un nœud non Ready. Les tests prouvent l'évaluation PromQL; aucune notification ne sera délivrée tant qu'un canal et un destinataire ne sont pas choisis.
+- Le profil Prometheus courant ne collecte pas encore la consommation CPU/mémoire réelle exposée par Metrics Server : les métriques KSM du dashboard décrivent l'état et les replicas, pas l'utilisation des ressources. Ne pas présenter ces séries comme une supervision complète de capacité.
+
+Conséquences pour la suite : conserver le profil dev sans `hostPath`, PVC ni node-exporter; ne pas dupliquer Metrics Server; garder toutes les interfaces en ClusterIP. Ne pas décider de la taille/longévité du stockage de production à partir de la seule capacité libre observée, et confirmer la stratégie de sauvegarde avant d'utiliser un PVC local. Le monitoring sur ce nœud unique n'apporte ni haute disponibilité ni visibilité si l'hôte est éteint.
 
 ## Jalons et points d'arrêt
 
 1. **Socle de développement — terminé** : profil isolé Kustomize, comptes de service, RBAC de lecture, services ClusterIP, Prometheus/Grafana/kube-state-metrics et dashboard minimal. Pas d'Ingress ni de secret commité.
-2. **Contrats et règles — terminé pour le profil dev** : tests de sécurité/configuration, règles Prometheus pour cibles indisponibles et replicas de déploiement, tests de règles promtool, validation du rendu Kustomize et schémas Kubernetes. Les alertes n'ont pas encore de canal de notification.
-3. **Inventaire et choix de production — en attente** : obtenir les informations serveur en lecture seule, puis confirmer version k3s, capacité, stockage, contraintes réseau, politique d'accès et déploiement. Aucun apply avant ce jalon et accord explicite.
-4. **Extension du profil — bloquée par l'inventaire** : ajouter sondes externes et node-exporter seulement après validation des ports/routes, privilèges/montages hôte, ressources et faux positifs Mercure. Définir les destinataires et le canal des alertes.
+2. **Contrats, inventaire et alertes de base — terminé pour le profil dev** : tests de sécurité/configuration, règles Prometheus pour cible indisponible, replicas de déploiement indisponibles, nœud non Ready et absence de métriques de nœud, tests de règles promtool, validation du rendu Kustomize et schémas Kubernetes. L'inventaire du 2026-11-05 a été analysé; les alertes n'ont pas encore de canal de notification.
+3. **Choix de production — en attente** : confirmer stratégie stockage, ressources, sécurité, exposition et déploiement à partir de l'inventaire. Aucun apply avant ce jalon et accord explicite.
+4. **Extension du profil — bloquée par des décisions d'accès** : décider l'intégration de la consommation CPU/mémoire de Metrics Server; ajouter sondes externes et node-exporter seulement après validation des ports/routes, privilèges/montages hôte, ressources et faux positifs Mercure. Définir les destinataires et le canal des alertes.
 5. **Production — hors de portée avant validation utilisateur** : concevoir persistance/rétention, authentification Grafana et configuration d'exposition. Écrire les tests correspondants avant les manifests, puis planifier une validation séparée sur cluster.
 
 Exécuter `sh scripts/validate.sh` après toute modification locale. Chaque jalon terminé doit être communiqué avant de commencer un jalon qui requiert des commandes serveur ou une décision de l'utilisateur.
@@ -28,7 +43,7 @@ Exécuter `sh scripts/validate.sh` après toute modification locale. Chaque jalo
 - L'API et le frontend sont exposés par des Services ClusterIP; MySQL et MinIO utilisent des volumes persistants locaux.
 - La CI Anima construit et publie les images applicatives sur GHCR puis applique certains manifests à l'aide d'un secret kubeconfig facultatif. Elle ne déploie pas de composants de supervision ni de contrôleur d'ingress.
 - L'ingress actuel route le frontend, l'API, les fichiers MinIO et Mercure sur `ultralout.re`; le remplacement nginx par Traefik sera expérimenté séparément.
-- La topologie réelle du cluster, les capacités et classe(s) de stockage, les contraintes réseau, les durées de rétention, les besoins d'alerte et les modalités d'accès restent à inventorier.
+- La topologie réelle, les capacités et classe(s) de stockage, ainsi que l'absence de quotas et de politiques réseau sont documentées ci-dessus. Les durées de rétention, les besoins d'alerte et les modalités d'accès restent à décider.
 
 ## Architecture de départ proposée
 
@@ -52,7 +67,7 @@ Cette architecture est un point de départ à confirmer après inventaire; elle 
 
 ## Séquencement
 
-1. **Inventorier** le cluster et les besoins : version/topologie k3s, nœuds, ressources, stockage, réseau, politiques de sécurité, routes à sonder, utilisateurs, alertes et rétention souhaitées.
+1. **Inventaire réalisé** : un seul nœud k3s, Metrics Server existant, stockage local-path sur le disque racine. Actualiser le relevé si le cluster change avant la mise en œuvre.
 2. **Valider la conception** : préciser les composants et leur mode d'installation, le namespace, les identités/RBAC, les ressources, les données persistantes, la protection de Grafana et les critères de réussite. Reporter les décisions dans `loutre-archi/` et mettre à jour ce document.
 3. **Définir les tests avant les manifests (TDD)** :
    - validation syntaxique et schéma des ressources Kubernetes rendues;
@@ -74,10 +89,11 @@ Cette architecture est un point de départ à confirmer après inventaire; elle 
 - Les tests confirment que les identités de collecte ne peuvent pas modifier les ressources Kubernetes; l'accès hôte est restreint et justifié.
 - Les étapes de déploiement, mise à jour et reprise sont documentées, et les vérifications reproductibles sont automatisées autant que possible.
 
-## Questions à résoudre lors de l'inventaire
+## Décisions de production à résoudre
 
-- Quels composants doivent être supervisés en priorité, et quelles sondes sont acceptables sans exposer de données ni déclencher d'actions?
-- Le stockage du cluster permet-il la persistance Prometheus? Quelle rétention est réellement nécessaire et soutenable?
+- Quelles données persistantes/but de sauvegarde sont acceptables avec le stockage local-path non extensible et une politique de reclaim `Delete`?
+- Quelle rétention est nécessaire et soutenable sur le disque racine, sans compromettre les volumes applicatifs?
+- La supervision CPU/mémoire doit-elle inclure une intégration spécifique aux métriques Metrics Server, ou peut-elle rester hors du premier lot Prometheus?
 - Où exécuter les sondes externes, et comment tester Mercure sans créer de faux positifs?
 - Quel mécanisme d'authentification et quels groupes autoriseront Grafana?
 - Quelles alertes nécessitent une notification, par quel canal et à qui?

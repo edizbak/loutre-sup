@@ -35,7 +35,7 @@ podman run --rm \
 
 podman run --rm \
   -v "$STACK_DIR:/workspace:ro" \
-  docker.io/rancher/kubectl:v1.32.0 \
+  docker.io/rancher/kubectl:v1.35.4 \
   kustomize /workspace > "$TMP_DIR/rendered.yaml"
 
 podman run --rm -i \
@@ -45,3 +45,5 @@ podman run --rm -i \
 podman run --rm \
   registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.16.0 \
   --help >/dev/null
+
+sh -n "$ROOT_DIR/scripts/inventory.sh"
