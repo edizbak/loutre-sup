@@ -465,15 +465,31 @@ class StackContractTest(unittest.TestCase):
         dashboard_path = STACK_DIR / "dashboards" / "cluster-overview.json"
         with dashboard_path.open(encoding="utf-8") as dashboard_file:
             dashboard = json.load(dashboard_file)
+        panels = dashboard["panels"]
         expressions = {
-            target["expr"]
-            for panel in dashboard["panels"]
-            for target in panel.get("targets", [])
+            target["expr"] for panel in panels for target in panel.get("targets", [])
         }
-        self.assertIn('up{job="kube-state-metrics"}', expressions)
-        self.assertIn("sum by (phase) (kube_pod_status_phase)", expressions)
+        self.assertEqual(len(panels), len({panel["id"] for panel in panels}))
+        active_pods_panel = next(panel for panel in panels if panel["id"] == 2)
+        self.assertEqual(16, active_pods_panel["gridPos"]["w"])
+        for panel in panels:
+            grid = panel["gridPos"]
+            self.assertLessEqual(grid["x"] + grid["w"], 24)
+        self.assertIn("up", expressions)
         self.assertIn(
-            "sum by (namespace) (kube_deployment_status_replicas_available)",
+            'sum by (namespace, phase) (kube_pod_status_phase{phase=~"Pending|Running",namespace=~"$namespace"})',
+            expressions,
+        )
+        self.assertIn(
+            'sum by (namespace) (kube_deployment_status_replicas_available{namespace=~"$namespace"})',
+            expressions,
+        )
+        self.assertIn(
+            'sum by (namespace) (kube_deployment_spec_replicas{namespace=~"$namespace"})',
+            expressions,
+        )
+        self.assertIn(
+            'sum by (namespace) (kube_pod_status_ready{condition="true",namespace=~"$namespace"})',
             expressions,
         )
         self.assertIn(
@@ -481,7 +497,7 @@ class StackContractTest(unittest.TestCase):
             expressions,
         )
         self.assertIn(
-            'sum(kube_pod_container_resource_requests{resource="cpu"})',
+            'sum(kube_pod_container_resource_requests{resource="cpu",namespace=~"$namespace"})',
             expressions,
         )
         self.assertIn(
@@ -489,13 +505,33 @@ class StackContractTest(unittest.TestCase):
             expressions,
         )
         self.assertIn(
-            'sum(kube_pod_container_resource_requests{resource="memory"})',
+            'sum(kube_pod_container_resource_requests{resource="memory",namespace=~"$namespace"})',
             expressions,
         )
         self.assertIn(
             'sum(kube_node_status_allocatable{resource="memory"})',
             expressions,
         )
+        namespace_variable = next(
+            variable
+            for variable in dashboard["templating"]["list"]
+            if variable["name"] == "namespace"
+        )
+        self.assertEqual(
+            'label_values(kube_pod_status_phase, namespace)',
+            namespace_variable["query"],
+        )
+        self.assertTrue(namespace_variable["includeAll"])
+        self.assertEqual(".*", namespace_variable["allValue"])
+        resource_panels = {
+            panel["title"]: panel for panel in panels if panel["id"] in {5, 6}
+        }
+        self.assertEqual(
+            {"CPU requests vs allocatable capacity", "Memory requests vs allocatable capacity"},
+            set(resource_panels),
+        )
+        for panel in resource_panels.values():
+            self.assertIn("not actual runtime usage", panel["description"])
 
     def test_deployments_use_restricted_pod_security_defaults(self):
         for deployment in self.by_kind.get("Deployment", []):

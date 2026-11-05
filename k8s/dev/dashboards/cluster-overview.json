@@ -18,20 +18,36 @@
           "color": {
             "mode": "palette-classic"
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "red",
                 "value": null
               },
               {
-                "color": "red",
+                "color": "green",
                 "value": 1
               }
             ]
           },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "Down"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "Up"
+                }
+              },
+              "type": "value"
+            }
+          ],
           "unit": "short"
         },
         "overrides": []
@@ -60,12 +76,12 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "up{job=\"kube-state-metrics\"}",
-          "legendFormat": "kube-state-metrics",
+          "expr": "up",
+          "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
-      "title": "Kube-state-metrics scrape",
+      "title": "Scrape target status",
       "type": "stat"
     },
     {
@@ -85,7 +101,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 16,
         "x": 8,
         "y": 0
       },
@@ -103,12 +119,12 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (phase) (kube_pod_status_phase)",
-          "legendFormat": "{{phase}}",
+          "expr": "sum by (namespace, phase) (kube_pod_status_phase{phase=~\"Pending|Running\",namespace=~\"$namespace\"})",
+          "legendFormat": "{{namespace}} / {{phase}}",
           "refId": "A"
         }
       ],
-      "title": "Pods by phase",
+      "title": "Active pods by phase (excludes terminal)",
       "type": "timeseries"
     },
     {
@@ -146,18 +162,61 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (namespace) (kube_deployment_status_replicas_available)",
+          "expr": "sum by (namespace) (kube_deployment_status_replicas_available{namespace=~\"$namespace\"})",
           "legendFormat": "{{namespace}} available",
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "sum by (namespace) (kube_deployment_spec_replicas)",
+          "expr": "sum by (namespace) (kube_deployment_spec_replicas{namespace=~\"$namespace\"})",
           "legendFormat": "{{namespace}} desired",
           "refId": "B"
         }
       ],
       "title": "Deployment replicas by namespace",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (namespace) (kube_pod_status_ready{condition=\"true\",namespace=~\"$namespace\"})",
+          "legendFormat": "{{namespace}} ready",
+          "refId": "A"
+        }
+      ],
+      "title": "Ready pods by namespace",
       "type": "timeseries"
     },
     {
@@ -253,7 +312,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 16,
         "x": 8,
         "y": 16
       },
@@ -271,7 +330,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\"})",
+          "expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\",namespace=~\"$namespace\"})",
           "legendFormat": "CPU requests",
           "refId": "A"
         },
@@ -282,7 +341,8 @@
           "refId": "B"
         }
       ],
-      "title": "CPU requests vs allocatable",
+      "title": "CPU requests vs allocatable capacity",
+      "description": "Compares declared CPU requests with cluster allocatable capacity; this is scheduling pressure, not actual runtime usage.",
       "type": "timeseries"
     },
     {
@@ -302,8 +362,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 8,
+        "w": 16,
+        "x": 0,
         "y": 24
       },
       "id": 6,
@@ -320,7 +380,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(kube_pod_container_resource_requests{resource=\"memory\"})",
+          "expr": "sum(kube_pod_container_resource_requests{resource=\"memory\",namespace=~\"$namespace\"})",
           "legendFormat": "Memory requests",
           "refId": "A"
         },
@@ -331,7 +391,8 @@
           "refId": "B"
         }
       ],
-      "title": "Memory requests vs allocatable",
+      "title": "Memory requests vs allocatable capacity",
+      "description": "Compares declared memory requests with cluster allocatable capacity; this is scheduling pressure, not actual runtime usage.",
       "type": "timeseries"
     }
   ],
@@ -342,7 +403,29 @@
     "cluster"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(kube_pod_status_phase, namespace)",
+        "includeAll": true,
+        "multi": true,
+        "name": "namespace",
+        "options": [],
+        "query": "label_values(kube_pod_status_phase, namespace)",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      }
+    ]
   },
   "time": {
     "from": "now-6h",

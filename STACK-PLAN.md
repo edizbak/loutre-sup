@@ -8,7 +8,7 @@ Ce fichier décrit la conception, le séquencement et l'état d'implémentation.
 
 ## Avancement de l'implémentation
 
-Un profil de développement est présent dans `k8s/dev/`. Il fournit Prometheus, kube-state-metrics, Grafana et un dashboard d'état minimal, avec Services internes, RBAC de lecture et stockage éphémère. Le namespace `monitoring-dev` et le bootstrap RBAC ont été créés sur le cluster après leurs dry-runs; les workloads de supervision ne sont pas encore déployés. Le profil ne constitue pas une cible de production.
+Un profil de développement est présent dans `k8s/dev/`. Il fournit Prometheus, kube-state-metrics, Grafana et un dashboard d'état, avec Services internes, RBAC de lecture et stockage éphémère. Le dashboard distingue pods actifs et prêts, filtre les vues namespacées, indique l'état des cibles scrappées et compare les requêtes déclarées aux capacités allocatables. Le namespace `monitoring-dev` et le bootstrap RBAC ont été créés sur le cluster après leurs dry-runs; les workloads de supervision ne sont pas encore déployés. Le profil ne constitue pas une cible de production.
 
 L'inventaire du serveur a été reçu et analysé. Le namespace et le bootstrap RBAC sont installés; les workloads restent à déployer après création du Secret Grafana et validation du dry-run. Les choix de production restent ouverts : stockage/rétention, exposition/authentification, ressources définitives, métriques hôte (node-exporter), sondes externes, notifications et isolation réseau.
 
@@ -45,13 +45,13 @@ L'inventaire en lecture seule fourni le 2026-11-05 confirme :
 - Il n'y a pas de `ResourceQuota`, `LimitRange` ou `NetworkPolicy` actuellement. ingress-nginx est le seul IngressClass; les routes publiques se trouvent dans le namespace `default`.
 - Des anciens pods `Completed`, `Error`, `ContainerStatusUnknown` et `Evicted` apparaissent dans la liste fournie alors que les déploiements courants étaient prêts. Le dashboard/alerting devra distinguer les pods contrôlés encore attendus des pods terminés ou anciens pour éviter les faux positifs.
 - Les règles dev couvrent l'indisponibilité des cibles scrappées, les replicas de déploiement indisponibles et un nœud non Ready. Les tests prouvent l'évaluation PromQL; aucune notification ne sera délivrée tant qu'un canal et un destinataire ne sont pas choisis.
-- Le profil Prometheus courant ne collecte pas encore la consommation CPU/mémoire réelle exposée par Metrics Server : le dashboard compare les requêtes déclarées par les pods aux capacités allocatables, mais ne montre pas l'utilisation réelle. Ne pas présenter ces séries comme une supervision complète de capacité.
+- Le profil Prometheus courant ne collecte pas encore la consommation CPU/mémoire réelle exposée par Metrics Server : le dashboard compare les requêtes déclarées par les pods aux capacités allocatables, mais ne montre pas l'utilisation réelle. Ces panneaux décrivent la pression de scheduling, pas la consommation en exécution; ne pas les présenter comme une supervision complète de capacité.
 
 Conséquences pour la suite : conserver le profil dev sans `hostPath`, PVC ni node-exporter; ne pas dupliquer Metrics Server; garder toutes les interfaces en ClusterIP. Ne pas décider de la taille/longévité du stockage de production à partir de la seule capacité libre observée, et confirmer la stratégie de sauvegarde avant d'utiliser un PVC local. Le monitoring sur ce nœud unique n'apporte ni haute disponibilité ni visibilité si l'hôte est éteint.
 
 ## Jalons et points d'arrêt
 
-1. **Socle de développement — terminé** : profil isolé Kustomize, comptes de service, RBAC de lecture, services ClusterIP, Prometheus/Grafana/kube-state-metrics et dashboard minimal. Pas d'Ingress ni de secret commité.
+1. **Socle de développement — terminé** : profil isolé Kustomize, comptes de service, RBAC de lecture, services ClusterIP, Prometheus/Grafana/kube-state-metrics et dashboard d'état. Pas d'Ingress ni de secret commité.
 2. **Contrats, inventaire et alertes de base — terminé pour le profil dev** : tests de sécurité/configuration, règles Prometheus pour cible indisponible, replicas de déploiement indisponibles, nœud non Ready et absence de métriques de nœud, tests de règles promtool, validation du rendu Kustomize et schémas Kubernetes. L'inventaire du 2026-11-05 a été analysé; les alertes n'ont pas encore de canal de notification.
 3. **Choix de production — en attente** : confirmer stratégie stockage, ressources, sécurité, exposition et déploiement à partir de l'inventaire. Aucun apply avant ce jalon et accord explicite.
 4. **Extension du profil — bloquée par des décisions d'accès** : décider l'intégration de la consommation CPU/mémoire de Metrics Server; ajouter sondes externes et node-exporter seulement après validation des ports/routes, privilèges/montages hôte, ressources et faux positifs Mercure. Définir les destinataires et le canal des alertes.
