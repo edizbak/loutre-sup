@@ -47,3 +47,5 @@ podman run --rm \
   --help >/dev/null
 
 sh -n "$ROOT_DIR/scripts/inventory.sh"
+sh -n "$ROOT_DIR/scripts/check-rbac.sh"
+sh -n "$ROOT_DIR/scripts/validate.sh"

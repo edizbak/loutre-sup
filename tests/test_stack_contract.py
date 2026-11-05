@@ -177,6 +177,21 @@ class StackContractTest(unittest.TestCase):
         self.assertIn("kubectl get nodes -o wide", script)
         self.assertIn("kubectl get storageclass -o wide", script)
 
+    def test_rbac_check_script_only_performs_authorization_queries(self):
+        script_path = ROOT / "scripts" / "check-rbac.sh"
+        script = script_path.read_text(encoding="utf-8")
+        for forbidden in (
+            "kubectl apply",
+            "kubectl create",
+            "kubectl delete",
+            "kubectl patch",
+            "kubectl edit",
+        ):
+            self.assertNotIn(forbidden, script)
+        self.assertIn("kubectl auth can-i", script)
+        self.assertIn("kube-state-metrics", script)
+        self.assertIn("prometheus", script)
+
     def test_prometheus_scrapes_only_in_cluster_service_targets(self):
         config_path = STACK_DIR / "prometheus.yml"
         with config_path.open(encoding="utf-8") as prometheus_config:
@@ -266,6 +281,14 @@ class StackContractTest(unittest.TestCase):
         )
         self.assertIn(
             'sum(kube_node_status_allocatable{resource="cpu"})',
+            expressions,
+        )
+        self.assertIn(
+            'sum(kube_pod_container_resource_requests{resource="memory"})',
+            expressions,
+        )
+        self.assertIn(
+            'sum(kube_node_status_allocatable{resource="memory"})',
             expressions,
         )
 
