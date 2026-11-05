@@ -107,9 +107,13 @@ Une CI GitHub Actions sans credentials de cluster est ajoutée dans
 `.github/workflows/validate.yml`; elle exécute `sh scripts/validate.sh` sur les PR vers
 `master` et les pushes sur `master`. La politique proposée de commits cohérents, tags SemVer
 manuels et adoption graduelle d'Argo CD est décrite dans `docs/ci-versioning-gitops.md`.
-Argo CD n'est pas installé et aucun déploiement automatisé n'est activé. Le bootstrap
-cluster-scope reste une opération administrateur séparée; le premier essai GitOps éventuel
-serait limité à l'observation puis aux workloads namespacés de `monitoring-dev`.
+Les déclarations `gitops/argocd/dev/` limitent une Application à `k8s/dev`, au dépôt et au
+namespace `monitoring-dev`, avec une liste blanche des types namespacés. La validation locale
+rend ce bundle et teste ses contrats. Argo CD n'est pas installé, les déclarations ne sont pas
+appliquées et aucun déploiement automatisé n'est activé. L'observation réelle attend une
+identité Kubernetes en lecture seule et une configuration Argo CD sans autorisation de sync
+manuel; le bootstrap cluster-scope reste une opération administrateur séparée. Voir
+`docs/argocd-dev-observe.md` avant toute installation ou application.
 
 ## Critères d'acceptation initiaux
 

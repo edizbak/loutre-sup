@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: loutre-sup-dev
+  namespace: argocd
+spec:
+  description: Development-only observation of the loutre supervision stack.
+  sourceRepos:
+    - https://github.com/edizbak/loutre-sup.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: monitoring-dev
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ServiceAccount
+    - group: apps
+      kind: Deployment

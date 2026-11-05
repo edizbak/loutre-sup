@@ -321,6 +321,82 @@ class StackContractTest(unittest.TestCase):
         self.assertIn("Observe-only Argo CD", proposal)
         self.assertIn("cluster-admin", proposal)
 
+    def test_argocd_dev_project_is_limited_to_repo_namespace_and_resource_kinds(self):
+        project_path = ROOT / "gitops" / "argocd" / "dev" / "project.yaml"
+        project = yaml.safe_load(project_path.read_text(encoding="utf-8"))
+        spec = project["spec"]
+        self.assertEqual("AppProject", project["kind"])
+        self.assertEqual("loutre-sup-dev", project["metadata"]["name"])
+        self.assertEqual("argocd", project["metadata"]["namespace"])
+        self.assertEqual(
+            ["https://github.com/edizbak/loutre-sup.git"], spec["sourceRepos"]
+        )
+        self.assertEqual(
+            [
+                {
+                    "server": "https://kubernetes.default.svc",
+                    "namespace": "monitoring-dev",
+                }
+            ],
+            spec["destinations"],
+        )
+        self.assertEqual([], spec["clusterResourceWhitelist"])
+        self.assertEqual(
+            {
+                ("", "ConfigMap"),
+                ("", "Service"),
+                ("", "ServiceAccount"),
+                ("apps", "Deployment"),
+            },
+            {
+                (resource["group"], resource["kind"])
+                for resource in spec["namespaceResourceWhitelist"]
+            },
+        )
+        self.assertEqual(
+            {"ConfigMap", "Service", "ServiceAccount", "Deployment"},
+            {document["kind"] for _, document in self.documents},
+        )
+
+    def test_argocd_dev_application_observes_only_the_dev_kustomize_path(self):
+        application_path = ROOT / "gitops" / "argocd" / "dev" / "application.yaml"
+        application = yaml.safe_load(application_path.read_text(encoding="utf-8"))
+        spec = application["spec"]
+        self.assertEqual("Application", application["kind"])
+        self.assertEqual("argocd", application["metadata"]["namespace"])
+        self.assertEqual("loutre-sup-dev", spec["project"])
+        self.assertEqual(
+            {
+                "repoURL": "https://github.com/edizbak/loutre-sup.git",
+                "targetRevision": "master",
+                "path": "k8s/dev",
+            },
+            spec["source"],
+        )
+        self.assertEqual(
+            {
+                "server": "https://kubernetes.default.svc",
+                "namespace": "monitoring-dev",
+            },
+            spec["destination"],
+        )
+        self.assertNotIn("syncPolicy", spec)
+
+    def test_argocd_dev_bundle_is_rendered_by_local_validation(self):
+        kustomization_path = ROOT / "gitops" / "argocd" / "dev" / "kustomization.yaml"
+        kustomization = yaml.safe_load(kustomization_path.read_text(encoding="utf-8"))
+        self.assertEqual(["project.yaml", "application.yaml"], kustomization["resources"])
+        validator = (ROOT / "scripts" / "validate.sh").read_text(encoding="utf-8")
+        self.assertIn("gitops/argocd/dev", validator)
+        guide = (ROOT / "docs" / "argocd-dev-observe.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("prevent", guide)
+        self.assertIn("manual sync", guide)
+        self.assertIn("read-only Kubernetes identity", guide)
+        self.assertIn("Applying the AppProject and Application is a separate", guide)
+        self.assertIn("until that change is approved", guide)
+
     def test_prometheus_scrapes_only_in_cluster_service_targets(self):
         config_path = STACK_DIR / "prometheus.yml"
         with config_path.open(encoding="utf-8") as prometheus_config:

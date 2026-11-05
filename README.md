@@ -38,6 +38,8 @@ does not apply manifests.
   and safe verification of the Kubernetes Secret Grafana requires.
 - [CI, versioning and GitOps](./docs/ci-versioning-gitops.md) — validation workflow,
   commit/release conventions, and staged Argo CD proposal.
+- [Argo CD dev observation](./docs/argocd-dev-observe.md) — repository-side AppProject and
+  Application, prerequisites, validation, and gates before cluster changes.
 - [Stack plan and inventory](./STACK-PLAN.md) — architecture, known cluster constraints,
   milestones, and decisions still needed.
 

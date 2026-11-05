@@ -61,6 +61,11 @@ podman run --rm -i \
   -strict -summary - < "$TMP_DIR/rendered-bootstrap.yaml"
 
 podman run --rm \
+  -v "$ROOT_DIR/gitops/argocd/dev:/workspace:ro" \
+  docker.io/rancher/kubectl:v1.35.4 \
+  kustomize /workspace > "$TMP_DIR/rendered-argocd-dev.yaml"
+
+podman run --rm \
   registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.16.0 \
   --help >/dev/null
 

@@ -1,0 +1,14 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loutre-sup-dev
+  namespace: argocd
+spec:
+  project: loutre-sup-dev
+  source:
+    repoURL: https://github.com/edizbak/loutre-sup.git
+    targetRevision: master
+    path: k8s/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring-dev

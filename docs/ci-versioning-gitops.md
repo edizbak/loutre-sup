@@ -14,10 +14,13 @@ later, separately approved environment.
 
 ## What exists today
 
-- `scripts/validate.sh` runs 26 contract tests, Prometheus configuration/rule validation,
+- `scripts/validate.sh` runs 29 contract tests, Prometheus configuration/rule validation,
   Kustomize rendering and Kubeconform schema checks using Podman.
 - `.github/workflows/validate.yml` runs the existing validation script on pull requests and
   pushes to `master`. It has read-only repository permission and no cluster credentials.
+- `gitops/argocd/dev/` declares a restricted AppProject and a `master`-tracking Application
+  for `k8s/dev`. It has no automated sync policy; neither Argo CD nor these resources have
+  been installed/applied, and they do not prevent manual sync by an authorized Argo CD user.
 - Manifests pin component image versions, but there is no repository release/version policy.
 - Anima's `.github/workflows/ci.yml` tests on PRs and `main`, publishes API/frontend/sidecar
   images tagged `latest`, and can directly apply manifests with a GitHub `KUBECONFIG` secret.
@@ -98,10 +101,11 @@ backups, network isolation or an operator's decision to authorize a deployment.
 
 1. **CI only:** run validation on PRs and the default branch. Continue the documented,
    operator-invoked deployment procedure; do not give Actions cluster credentials.
-2. **Observe-only Argo CD:** after the repository host, cluster access model and server
-   network access are settled, install a pinned Argo CD release and connect it read-only to
-   the Git repository. Start with an Application for `k8s/dev`, observe diffs and health,
-   and do not enable automated sync.
+2. **Observe-only Argo CD:** after the version, repository access, cluster read-only
+   identity, controller permissions and UI/API access model are reviewed, install a pinned
+   Argo CD release and apply the declarations in `gitops/argocd/dev/`. Observe diffs and
+   health without sync permissions; the absent automated sync policy alone does not prevent
+   a manual sync.
 3. **Controlled dev sync:** constrain an Argo CD AppProject to the intended repository,
    `monitoring-dev` destination and approved namespaced kinds. Keep namespace creation,
    cluster-scoped RBAC and `k8s/dev/bootstrap` as an explicit administrator bootstrap;
