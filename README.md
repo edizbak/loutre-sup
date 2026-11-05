@@ -87,10 +87,16 @@ Think of this as two separate keys for two different jobs:
 The first identity is used only in steps 1-3 and for rollback. The second is used from step 4
 onwards. A server-side dry-run never creates resources: the namespace must first be created
 for real before the bootstrap or workload dry-runs can validate namespaced objects.
+Run commands from your normal sudo-capable account; do not run the whole procedure or a
+deployer script under `sudo`. Only the administrative `kubectl` commands are prefixed with
+`sudo`. If you want sudo to authenticate before starting a sequence (rather than prompting
+when the cached credential expires), run `sudo -v` once at the beginning. Individual `sudo`
+commands will still prompt automatically if the authentication timestamp expires later.
 
 ### 1. Validate locally and confirm the target
 
 ```sh
+sudo -v
 sh scripts/validate.sh
 sudo kubectl config current-context
 sudo kubectl version -o yaml
@@ -145,12 +151,17 @@ sudo kubectl apply -k k8s/dev/bootstrap
 
 This creates `monitoring-dev-kube-state-metrics` read-only cluster RBAC, plus the namespaced
 deployer account and role. The following commands create a separate kubeconfig for that
-ServiceAccount using a one-hour token. Run them as your normal user from the server where
-`sudo kubectl` works. They copy only the API server address and CA certificate from the
-administrator's current context; the administrator certificate/key is not copied. The token
-is stored in the kubeconfig, so protect that file and never paste its contents into chat.
+ServiceAccount using a one-hour token. This is a shell block, not a command to run with
+`sudo`: paste it into the same interactive shell as your normal user, on the server where
+`sudo kubectl` works. Running it with `sudo` would create the kubeconfig under root's home
+and change its ownership. `sudo -v` prompts for your password now if needed; later `sudo`
+commands prompt again if the cached authentication expires. The commands copy only the API
+server address and CA certificate from the administrator's current context; the administrator
+certificate/key is not copied. The token is stored in the kubeconfig, so protect that file
+and never paste its contents into chat.
 
 ```sh
+sudo -v
 umask 077
 mkdir -p "$HOME/.kube"
 DEPLOYER_KUBECONFIG="$HOME/.kube/monitoring-dev.kubeconfig"
@@ -205,6 +216,20 @@ kubectl auth can-i create namespaces
 kubectl auth can-i create clusterroles
 kubectl auth can-i get secrets -n monitoring-dev
 ```
+
+If the first two allowed checks return `yes` and only port-forward returns `no`, the
+installed Role may predate the `pods/portforward` permission. From the repository directory,
+update only the bootstrap RBAC with the administrative identity, then repeat the checks:
+
+```sh
+sudo kubectl apply -k k8s/dev/bootstrap
+kubectl auth can-i create pods/portforward -n monitoring-dev
+```
+
+The expected result is `yes`. RBAC permission changes apply to the existing ServiceAccount
+token; do not generate a new kubeconfig just for this update. If the check still returns
+`no`, stop and report the output rather than broadening the Role. The namespace remains the
+only scope for port-forward operations.
 
 If token creation or a permission check fails, stop and send the error (not the token).
 Tokens expire after one hour; generate a replacement and update the dedicated kubeconfig

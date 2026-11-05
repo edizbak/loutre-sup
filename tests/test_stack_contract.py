@@ -261,8 +261,12 @@ class StackContractTest(unittest.TestCase):
         self.assertIn("kubectl create token monitoring-dev-deployer", readme)
         self.assertIn("monitoring-dev.kubeconfig", readme)
         self.assertIn("--duration=1h", readme)
-        self.assertIn("administrator certificate/key is not copied", readme)
+        self.assertIn("certificate/key is not copied", readme)
         self.assertIn("kubectl auth can-i create pods/portforward", readme)
+        self.assertIn("sudo -v", readme)
+        self.assertIn("do not run the whole procedure or a", readme)
+        self.assertIn("sudo kubectl apply -k k8s/dev/bootstrap", readme)
+        self.assertIn("do not generate a new kubeconfig", readme)
 
     def test_prometheus_scrapes_only_in_cluster_service_targets(self):
         config_path = STACK_DIR / "prometheus.yml"
