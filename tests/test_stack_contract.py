@@ -245,7 +245,9 @@ class StackContractTest(unittest.TestCase):
         self.assertIn("prometheus", script)
 
     def test_readme_documents_staged_dev_deployment_and_rollback(self):
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        readme = (ROOT / "docs" / "development-deployment.md").read_text(
+            encoding="utf-8"
+        )
         for command in (
             "kubectl apply --dry-run=server -k k8s/dev/namespace",
             "kubectl apply --dry-run=server -k k8s/dev/bootstrap",
@@ -257,16 +259,67 @@ class StackContractTest(unittest.TestCase):
             self.assertIn(command, readme)
         self.assertIn("explicit approval", readme.lower())
         self.assertIn("NetworkPolicy", readme)
+        self.assertIn("access to the ClusterIP Services from other pods in the", readme)
+        self.assertIn("This is not an acceptable", readme)
+        self.assertIn("cannot reach or compromise the", readme)
         self.assertIn("monitoring-dev-deployer", readme)
         self.assertIn("kubectl create token monitoring-dev-deployer", readme)
         self.assertIn("monitoring-dev.kubeconfig", readme)
         self.assertIn("--duration=1h", readme)
-        self.assertIn("certificate/key is not copied", readme)
-        self.assertIn("kubectl auth can-i create pods/portforward", readme)
+        self.assertIn("does not copy the administrator certificate or key", readme)
+        self.assertIn(
+            "kubectl auth can-i create pods --subresource=portforward", readme
+        )
         self.assertIn("sudo -v", readme)
-        self.assertIn("do not run the whole procedure or a", readme)
+        self.assertIn("Do not run this runbook or a shell block", readme)
         self.assertIn("sudo kubectl apply -k k8s/dev/bootstrap", readme)
-        self.assertIn("do not generate a new kubeconfig", readme)
+        self.assertIn("do not generate a new", readme)
+
+    def test_grafana_secret_guide_uses_interactive_input_and_never_displays_secret_data(self):
+        guide = (ROOT / "docs" / "grafana-admin-secret.md").read_text(encoding="utf-8")
+        self.assertIn("read -r -s", guide)
+        self.assertIn("--from-env-file=/dev/stdin", guide)
+        self.assertIn("kubectl create secret generic grafana-admin-credentials", guide)
+        self.assertIn(
+            "admin-user=%s\\nadmin-password=%s\\n", guide
+        )
+        self.assertIn("sudo -n kubectl create secret", guide)
+        self.assertIn("get secret grafana-admin-credentials -n monitoring-dev -o name", guide)
+        self.assertNotIn("get secret grafana-admin-credentials -n monitoring-dev -o yaml", guide)
+        self.assertIn("cannot create or read it", guide)
+
+    def test_readme_links_to_split_guides(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("./docs/development-deployment.md", readme)
+        self.assertIn("./docs/grafana-admin-secret.md", readme)
+        self.assertIn("./docs/ci-versioning-gitops.md", readme)
+        self.assertLessEqual(len(readme.splitlines()), 50)
+
+    def test_ci_validates_pull_requests_without_cluster_credentials(self):
+        workflow_path = ROOT / ".github" / "workflows" / "validate.yml"
+        workflow = workflow_path.read_text(encoding="utf-8")
+        workflow_config = yaml.safe_load(workflow)
+        self.assertIn("jobs", workflow_config)
+        self.assertIn("validate", workflow_config["jobs"])
+        self.assertIn("pull_request:", workflow)
+        self.assertIn("push:", workflow)
+        self.assertIn("branches: [master]", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertIn("actions/checkout@", workflow)
+        self.assertIn("run: sh scripts/validate.sh", workflow)
+        self.assertNotIn("KUBECONFIG", workflow)
+        self.assertNotIn("kubectl apply", workflow)
+        self.assertNotIn("secrets.", workflow)
+
+    def test_ci_and_gitops_proposal_describes_release_and_argocd_stages(self):
+        proposal = (ROOT / "docs" / "ci-versioning-gitops.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Conventional Commit", proposal)
+        self.assertIn("v0.1.0", proposal)
+        self.assertIn("latest", proposal)
+        self.assertIn("Observe-only Argo CD", proposal)
+        self.assertIn("cluster-admin", proposal)
 
     def test_prometheus_scrapes_only_in_cluster_service_targets(self):
         config_path = STACK_DIR / "prometheus.yml"

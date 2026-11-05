@@ -8,31 +8,31 @@ Ce fichier décrit la conception, le séquencement et l'état d'implémentation.
 
 ## Avancement de l'implémentation
 
-Un premier profil de développement non déployé est présent dans `k8s/dev/`. Il fournit Prometheus, kube-state-metrics, Grafana et un dashboard d'état minimal, avec Services internes, RBAC de lecture et stockage éphémère. Le profil est fait pour valider la configuration; ne pas le considérer comme une cible de production.
+Un profil de développement est présent dans `k8s/dev/`. Il fournit Prometheus, kube-state-metrics, Grafana et un dashboard d'état minimal, avec Services internes, RBAC de lecture et stockage éphémère. Le namespace `monitoring-dev` et le bootstrap RBAC ont été créés sur le cluster après leurs dry-runs; les workloads de supervision ne sont pas encore déployés. Le profil ne constitue pas une cible de production.
 
-L'inventaire du serveur a été reçu et analysé. Il reste nécessaire de confirmer les choix de production avant tout apply, notamment stockage/rétention, exposition/authentification, ressources définitives, métriques hôte (node-exporter), sondes externes et destinataires d'alertes. Le profil n'est pas installé sur le cluster.
+L'inventaire du serveur a été reçu et analysé. Le namespace et le bootstrap RBAC sont installés; les workloads restent à déployer après création du Secret Grafana et validation du dry-run. Les choix de production restent ouverts : stockage/rétention, exposition/authentification, ressources définitives, métriques hôte (node-exporter), sondes externes, notifications et isolation réseau.
 
 Les manifests sont séparés en trois ensembles : `k8s/dev/namespace/` pour le namespace, `k8s/dev/bootstrap/` pour le RBAC cluster-scopé et le compte/role de déploiement limité au namespace, et `k8s/dev/` pour les workloads. Le déploiement normal ne nécessite donc pas le kubeconfig administrateur. Le compte de déploiement peut modifier les workloads du namespace et doit être considéré comme privilégié sur les Secrets qu'ils peuvent monter ainsi que sur les permissions de lecture de kube-state-metrics qu'il peut indirectement obtenir; il ne peut pas gérer directement les Secrets via l'API ni modifier le RBAC.
 
-Le premier dry-run combinant la création du namespace et les objets namespacés a échoué comme attendu : un server-side dry-run ne persiste pas le namespace avant de valider les objets suivants. Aucun changement réel n'a été appliqué au cluster.
+Le premier dry-run combinant la création du namespace et les objets namespacés a échoué comme attendu : un server-side dry-run ne persiste pas le namespace avant de valider les objets suivants. Le namespace et le bootstrap ont ensuite été appliqués séparément après validation de leurs dry-runs; aucun workload de supervision n'a encore été déployé.
 
-## Prochaine étape : valider uniquement le namespace
+## Prochaine étape : Secret Grafana et dry-run workloads
 
-La procédure opératoire détaillée est dans `README.md` (« Development deployment runbook »). Depuis la racine du dépôt `loutre-sup`, le prochain geste sur le serveur est uniquement le dry-run server-side du namespace :
+La procédure opératoire détaillée est dans `docs/development-deployment.md`; le Secret est décrit dans `docs/grafana-admin-secret.md`. Après création et vérification du Secret par l'administrateur, effectuer avec le kubeconfig restreint :
 
 ```sh
-sudo kubectl apply --dry-run=server -k k8s/dev/namespace
+kubectl apply --dry-run=server -k k8s/dev
 ```
 
-Il faut transmettre et examiner sa sortie avant de créer le namespace réellement. Après accord explicite et création effective du namespace, le bootstrap RBAC sera à son tour dry-runné et examiné avec l'identité administrateur. Les manifests applicatifs seront ensuite dry-runnés puis appliqués avec le kubeconfig restreint `monitoring-dev-deployer`. Ces dry-runs ne valident ni le scheduling, ni le pull des images, ni les Secrets référencés.
+Transmettre et examiner la sortie avant tout apply réel des workloads. Ce dry-run ne valide ni le scheduling, ni le pull des images.
 
 Avant le premier `kubectl apply -k k8s/dev`, les points d'arrêt sont :
 
-1. décider si les Services ClusterIP peuvent être joignables depuis les autres pods du cluster. Aucune NetworkPolicy n'était présente lors de l'inventaire; ClusterIP n'est pas une barrière d'accès. Si une isolation est requise, définir/tester les règles avec le CNI réel avant l'installation;
-2. créer le Secret `grafana-admin-credentials` hors Git par un mécanisme approuvé, sans en communiquer les données;
+1. **Décision prise pour le profil dev :** l'accès aux Services ClusterIP de `monitoring-dev` depuis les autres pods du cluster est accepté pour cet environnement de développement. Aucune NetworkPolicy dev n'est requise avant l'installation. Cette acceptation ne s'étend pas à la production;
+2. créer le Secret `grafana-admin-credentials` hors Git par le guide `docs/grafana-admin-secret.md`, sans en communiquer les données;
 3. examiner et approuver séparément le dry-run des workloads après mise en place du kubeconfig restreint.
 
-Après approbation explicite de chaque étape, l'opérateur applique le profil, attend les trois rollouts, vérifie les endpoints/cibles/règles avec des port-forwards temporaires, puis exécute `scripts/check-rbac.sh`. L'arrêt/rollback est documenté et ne doit supprimer que le namespace dédié s'il ne contient aucun workload étranger. Aucun accès cluster n'est utilisé par le présent dépôt/outillage local.
+Après approbation explicite de chaque étape, l'opérateur applique le profil, attend les trois rollouts, vérifie les endpoints/cibles/règles avec des port-forwards temporaires, puis exécute `scripts/check-rbac.sh`. L'arrêt/rollback est documenté et ne doit supprimer que le namespace dédié s'il ne contient aucun workload étranger. Les accès serveur ont été exécutés manuellement par l'administrateur; les tests et la CI de ce dépôt n'utilisent pas les credentials du cluster.
 
 ## Résultats de l'inventaire serveur
 
@@ -55,7 +55,7 @@ Conséquences pour la suite : conserver le profil dev sans `hostPath`, PVC ni no
 2. **Contrats, inventaire et alertes de base — terminé pour le profil dev** : tests de sécurité/configuration, règles Prometheus pour cible indisponible, replicas de déploiement indisponibles, nœud non Ready et absence de métriques de nœud, tests de règles promtool, validation du rendu Kustomize et schémas Kubernetes. L'inventaire du 2026-11-05 a été analysé; les alertes n'ont pas encore de canal de notification.
 3. **Choix de production — en attente** : confirmer stratégie stockage, ressources, sécurité, exposition et déploiement à partir de l'inventaire. Aucun apply avant ce jalon et accord explicite.
 4. **Extension du profil — bloquée par des décisions d'accès** : décider l'intégration de la consommation CPU/mémoire de Metrics Server; ajouter sondes externes et node-exporter seulement après validation des ports/routes, privilèges/montages hôte, ressources et faux positifs Mercure. Définir les destinataires et le canal des alertes.
-5. **Production — hors de portée avant validation utilisateur** : concevoir persistance/rétention, authentification Grafana et configuration d'exposition. Écrire les tests correspondants avant les manifests, puis planifier une validation séparée sur cluster.
+5. **Production — hors de portée avant validation utilisateur** : concevoir persistance/rétention, authentification Grafana, configuration d'exposition et isolation réseau. La stack de production devra être protégée contre l'accès d'un workload non fiable/compromis; définir et tester une politique réseau basée sur le CNI réel et les flux nécessaires avant tout déploiement. Écrire les tests correspondants avant les manifests, puis planifier une validation séparée sur cluster.
 
 Exécuter `sh scripts/validate.sh` après toute modification locale. Chaque jalon terminé doit être communiqué avant de commencer un jalon qui requiert des commandes serveur ou une décision de l'utilisateur.
 
@@ -85,7 +85,7 @@ Cette architecture est un point de départ à confirmer après inventaire; elle 
 - Rendre l'interface accessible uniquement à des utilisateurs autorisés. N'accorder à Grafana que l'accès de lecture aux sources nécessaires.
 - Définir requests/limits, stockage, sauvegarde et rétention en fonction des capacités mesurées; prévoir l'effet d'une panne ou saturation du stockage.
 - Ne pas inclure de secret, kubeconfig ou donnée de production dans le dépôt. Ne pas réutiliser le kubeconfig privilégié de la CI applicative.
-- Ne pas créer de dépôt hôte GitHub distant pour `loutre-sup` sans demander au préalable l'autorisation de l'utilisateur.
+- Le dépôt GitHub `loutre-sup` est maintenant initialisé; toute nouvelle automatisation doit conserver une CI sans credentials cluster.
 
 ## Séquencement
 
@@ -100,6 +100,16 @@ Cette architecture est un point de départ à confirmer après inventaire; elle 
 4. **Implémenter par petits changements** les manifests/configurations et faire réussir les contrôles correspondants. Éviter les secrets en clair et les valeurs non confirmées.
 5. **Valider sur le cluster** : vérifier les pods/cibles, les requêtes utiles, les alertes, l'accès protégé, les permissions effectives et le comportement lors d'une indisponibilité. Séparer ces contrôles d'intégration des tests statiques de configuration.
 6. **Documenter l'exploitation** : accès, mise à jour, sauvegarde/restauration, maintenance, diagnostic et procédure de retrait. Définir les alertes à notifier et leur destinataire avant de les considérer en production.
+
+## CI, versionnement et GitOps
+
+Une CI GitHub Actions sans credentials de cluster est ajoutée dans
+`.github/workflows/validate.yml`; elle exécute `sh scripts/validate.sh` sur les PR vers
+`master` et les pushes sur `master`. La politique proposée de commits cohérents, tags SemVer
+manuels et adoption graduelle d'Argo CD est décrite dans `docs/ci-versioning-gitops.md`.
+Argo CD n'est pas installé et aucun déploiement automatisé n'est activé. Le bootstrap
+cluster-scope reste une opération administrateur séparée; le premier essai GitOps éventuel
+serait limité à l'observation puis aux workloads namespacés de `monitoring-dev`.
 
 ## Critères d'acceptation initiaux
 
