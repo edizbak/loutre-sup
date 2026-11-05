@@ -14,7 +14,7 @@ later, separately approved environment.
 
 ## What exists today
 
-- `scripts/validate.sh` runs 29 contract tests, Prometheus configuration/rule validation,
+- `scripts/validate.sh` runs the contract suite, Prometheus configuration/rule validation,
   Kustomize rendering and Kubeconform schema checks using Podman.
 - `.github/workflows/validate.yml` runs the existing validation script on pull requests and
   pushes to `master`. It has read-only repository permission and no cluster credentials.

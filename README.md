@@ -6,12 +6,13 @@ decisions](./STACK-PLAN.md) before continuing.
 
 ## What is included
 
-`k8s/dev/` contains Prometheus, kube-state-metrics, Grafana and a cluster overview dashboard
-with namespace filters, scrape-target status, pod readiness and declared resource requests
-versus allocatable capacity. These resource panels do not show actual usage. Services are
-internal ClusterIP; Grafana anonymous access and self-signup are disabled. Prometheus and
-Grafana use bounded ephemeral storage. Alerts are evaluated, but no notification receiver is
-configured.
+`k8s/dev/` contains Prometheus, kube-state-metrics, a read-only Metrics Server API exporter,
+Grafana and a cluster overview dashboard. The dashboard shows recent pod and node CPU/memory
+usage alongside pod readiness, scrape-target status and declared resource requests versus
+allocatable capacity. Metrics Server supplies recent measurements, not historical data;
+Prometheus samples them every 30 seconds. Services are internal ClusterIP; Grafana anonymous
+access and self-signup are disabled. Prometheus and Grafana use bounded ephemeral storage.
+Alerts are evaluated, but no notification receiver is configured.
 
 The development profile has no Ingress, persistent volumes, node-exporter, external probes,
 or NetworkPolicies; reachability from other cluster pods is accepted for dev only. ClusterIP

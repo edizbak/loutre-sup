@@ -10,6 +10,9 @@ configMapGenerator:
     files:
       - prometheus.yml
       - prometheus-rules.yml
+  - name: metrics-server-exporter
+    files:
+      - metrics_server_exporter.py
   - name: grafana-dashboards
     files:
       - dashboards/cluster-overview.json

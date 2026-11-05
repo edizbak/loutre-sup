@@ -4,6 +4,13 @@ from pathlib import Path
 
 import yaml
 
+from tests.support.kubernetes_contracts import (
+    assert_cluster_internal_services,
+    assert_no_host_or_persistent_volumes,
+    assert_pinned_images_and_bounded_resources,
+    assert_restricted_pod_security,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 STACK_DIR = ROOT / "k8s" / "dev"
@@ -49,7 +56,12 @@ class StackContractTest(unittest.TestCase):
             for container in deployment["spec"]["template"]["spec"]["containers"]
         }
         self.assertTrue(
-            {"prometheus", "grafana", "kube-state-metrics"}.issubset(deployments)
+            {
+                "prometheus",
+                "grafana",
+                "kube-state-metrics",
+                "metrics-server-exporter",
+            }.issubset(deployments)
         )
 
     def test_all_objects_are_scoped_to_the_dev_namespace(self):
@@ -134,26 +146,23 @@ class StackContractTest(unittest.TestCase):
             arg for arg in container["args"] if arg.startswith("--resources=")
         )
         enabled_resources = set(resources_arg.split("=", 1)[1].split(","))
-        granted_resources = {
-            resource
+        ksm_role = next(
+            role
             for role in self.by_kind.get("ClusterRole", [])
-            for rule in role["rules"]
-            for resource in rule["resources"]
+            if role["metadata"]["name"] == "monitoring-dev-kube-state-metrics"
+        )
+        granted_resources = {
+            resource for rule in ksm_role["rules"] for resource in rule["resources"]
         }
         self.assertEqual(enabled_resources, granted_resources)
 
     def test_images_are_version_pinned_and_resources_are_bounded(self):
-        for deployment in self.by_kind.get("Deployment", []):
-            for container in deployment["spec"]["template"]["spec"]["containers"]:
-                image = container["image"]
-                self.assertNotIn(":latest", image)
-                self.assertIn(":", image.rsplit("/", 1)[-1])
-                self.assertIn("requests", container["resources"])
-                self.assertIn("limits", container["resources"])
-                self.assertIn(
-                    "ephemeral-storage", container["resources"]["requests"]
-                )
-                self.assertIn("ephemeral-storage", container["resources"]["limits"])
+        workloads = [
+            document
+            for document in self.objects
+            if document["kind"] in {"Deployment", "DaemonSet", "StatefulSet"}
+        ]
+        assert_pinned_images_and_bounded_resources(workloads)
 
     def test_prometheus_storage_and_retention_are_capped(self):
         deployment = next(
@@ -177,11 +186,7 @@ class StackContractTest(unittest.TestCase):
             for document in self.objects
             if document["kind"] in {"Deployment", "DaemonSet", "StatefulSet"}
         ]
-        for workload in workload_documents:
-            pod_spec = workload["spec"]["template"]["spec"]
-            for volume in pod_spec.get("volumes", []):
-                self.assertNotIn("hostPath", volume)
-                self.assertNotIn("persistentVolumeClaim", volume)
+        assert_no_host_or_persistent_volumes(workload_documents)
         container_names = {
             container["name"]
             for workload in workload_documents
@@ -242,6 +247,8 @@ class StackContractTest(unittest.TestCase):
             self.assertNotIn(forbidden, script)
         self.assertIn("kubectl auth can-i", script)
         self.assertIn("kube-state-metrics", script)
+        self.assertIn("metrics.k8s.io", script)
+        self.assertIn("check_metrics watch pods.metrics.k8s.io no", script)
         self.assertIn("prometheus", script)
 
     def test_readme_documents_staged_dev_deployment_and_rollback(self):
@@ -274,6 +281,8 @@ class StackContractTest(unittest.TestCase):
         self.assertIn("Do not run this runbook or a shell block", readme)
         self.assertIn("sudo kubectl apply -k k8s/dev/bootstrap", readme)
         self.assertIn("do not generate a new", readme)
+        self.assertIn("monitoring-dev-metrics-server-exporter", readme)
+        self.assertIn("metrics.k8s.io", readme)
 
     def test_grafana_secret_guide_uses_interactive_input_and_never_displays_secret_data(self):
         guide = (ROOT / "docs" / "grafana-admin-secret.md").read_text(encoding="utf-8")
@@ -412,11 +421,12 @@ class StackContractTest(unittest.TestCase):
             all(
                 target == "prometheus.monitoring-dev.svc:9090"
                 or target == "kube-state-metrics.monitoring-dev.svc:8080"
+                or target == "metrics-server-exporter.monitoring-dev.svc:9100"
                 for target in targets
             )
         )
         self.assertEqual(
-            {"prometheus", "kube-state-metrics"},
+            {"prometheus", "kube-state-metrics", "metrics-server-exporter"},
             {job["job_name"] for job in config["scrape_configs"]},
         )
         self.assertEqual(["/etc/prometheus/prometheus-rules.yml"], config["rule_files"])
@@ -436,6 +446,7 @@ class StackContractTest(unittest.TestCase):
                 "KubernetesDeploymentUnavailable",
                 "KubernetesNodeNotReady",
                 "KubernetesNodeMetricsMissing",
+                "MetricsServerExporterUnavailable",
             },
             {alert["alertname"] for alert in alert_tests},
         )
@@ -448,6 +459,7 @@ class StackContractTest(unittest.TestCase):
         self.assertEqual(
             {
                 "prometheus-config": ["prometheus.yml", "prometheus-rules.yml"],
+                "metrics-server-exporter": ["metrics_server_exporter.py"],
                 "grafana-dashboards": ["dashboards/cluster-overview.json"],
             },
             generated_files,
@@ -459,6 +471,7 @@ class StackContractTest(unittest.TestCase):
             if "configMap" in volume
         ]
         self.assertIn("prometheus-config", volume_refs)
+        self.assertIn("metrics-server-exporter", volume_refs)
         self.assertIn("grafana-dashboards", volume_refs)
 
     def test_dashboard_contains_queries_for_metrics_that_are_scraped(self):
@@ -512,6 +525,17 @@ class StackContractTest(unittest.TestCase):
             'sum(kube_node_status_allocatable{resource="memory"})',
             expressions,
         )
+        self.assertIn(
+            'sum by (namespace) (metrics_server_pod_cpu_cores{namespace=~"$namespace"})',
+            expressions,
+        )
+        self.assertIn(
+            'sum by (namespace) (metrics_server_pod_memory_bytes{namespace=~"$namespace"})',
+            expressions,
+        )
+        self.assertIn("metrics_server_node_cpu_cores", expressions)
+        self.assertIn("metrics_server_node_memory_bytes", expressions)
+        self.assertIn("metrics_server_exporter_up", expressions)
         namespace_variable = next(
             variable
             for variable in dashboard["templating"]["list"]
@@ -534,15 +558,10 @@ class StackContractTest(unittest.TestCase):
             self.assertIn("not actual runtime usage", panel["description"])
 
     def test_deployments_use_restricted_pod_security_defaults(self):
-        for deployment in self.by_kind.get("Deployment", []):
-            pod_spec = deployment["spec"]["template"]["spec"]
-            self.assertFalse(pod_spec.get("hostNetwork", False))
-            self.assertFalse(pod_spec.get("hostPID", False))
-            self.assertTrue(pod_spec["securityContext"]["runAsNonRoot"])
-            for container in pod_spec["containers"]:
-                security = container.get("securityContext", {})
-                self.assertTrue(security.get("allowPrivilegeEscalation") is False)
-                self.assertTrue(security.get("readOnlyRootFilesystem"))
+        deployments = [
+            item for item in self.objects if item["kind"] == "Deployment"
+        ]
+        assert_restricted_pod_security(deployments)
 
     def test_prometheus_has_no_kubernetes_api_permissions(self):
         bindings = self.by_kind.get("ClusterRoleBinding", []) + self.by_kind.get(
@@ -555,16 +574,46 @@ class StackContractTest(unittest.TestCase):
                 [subject.get("name") for subject in subjects],
             )
 
-    def test_only_kube_state_metrics_uses_a_cluster_wide_read_role(self):
+    def test_metrics_server_exporter_has_only_metrics_api_list_permissions(self):
         bindings = self.by_kind.get("ClusterRoleBinding", [])
-        self.assertEqual(1, len(bindings))
-        binding = bindings[0]
-        self.assertEqual("kube-state-metrics", binding["subjects"][0]["name"])
-        self.assertEqual(EXPECTED_NAMESPACE, binding["subjects"][0]["namespace"])
+        self.assertEqual(
+            {
+                "monitoring-dev-kube-state-metrics",
+                "monitoring-dev-metrics-server-exporter",
+            },
+            {binding["metadata"]["name"] for binding in bindings},
+        )
+        binding = next(
+            binding
+            for binding in bindings
+            if binding["metadata"]["name"] == "monitoring-dev-metrics-server-exporter"
+        )
+        self.assertEqual(
+            {
+                "kind": "ServiceAccount",
+                "name": "metrics-server-exporter",
+                "namespace": EXPECTED_NAMESPACE,
+            },
+            binding["subjects"][0],
+        )
+        role = next(
+            role
+            for role in self.by_kind["ClusterRole"]
+            if role["metadata"]["name"] == "monitoring-dev-metrics-server-exporter"
+        )
+        self.assertEqual(
+            [
+                {
+                    "apiGroups": ["metrics.k8s.io"],
+                    "resources": ["nodes", "pods"],
+                    "verbs": ["list"],
+                }
+            ],
+            role["rules"],
+        )
 
     def test_services_are_cluster_internal(self):
-        for service in self.by_kind.get("Service", []):
-            self.assertEqual("ClusterIP", service["spec"].get("type", "ClusterIP"))
+        assert_cluster_internal_services(self.by_kind.get("Service", []))
 
 
 if __name__ == "__main__":

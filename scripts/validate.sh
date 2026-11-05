@@ -69,6 +69,10 @@ podman run --rm \
   registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.16.0 \
   --help >/dev/null
 
+podman run --rm \
+  docker.io/library/python:3.12.12-slim-bookworm \
+  python --version
+
 sh -n "$ROOT_DIR/scripts/inventory.sh"
 sh -n "$ROOT_DIR/scripts/check-rbac.sh"
 sh -n "$ROOT_DIR/scripts/validate.sh"

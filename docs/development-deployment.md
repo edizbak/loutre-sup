@@ -10,7 +10,7 @@ The manifests are split into three Kustomize targets:
 | Target | Contents | Identity |
 |---|---|---|
 | `k8s/dev/namespace/` | Namespace and restricted Pod Security labels | Cluster administrator |
-| `k8s/dev/bootstrap/` | kube-state-metrics ClusterRole/Binding and namespace deployer Role/Binding | Cluster administrator |
+| `k8s/dev/bootstrap/` | kube-state-metrics and Metrics Server exporter ClusterRole/Bindings, plus namespace deployer Role/Binding | Cluster administrator |
 | `k8s/dev/` | Monitoring Services, workloads, ServiceAccounts and ConfigMaps | `monitoring-dev-deployer` |
 
 This split is necessary because a server-side dry-run validates objects but does not persist
@@ -43,6 +43,8 @@ sudo kubectl get namespace monitoring-dev
 sudo kubectl get deploy,sts,ds,svc,cm,sa,role,rolebinding,networkpolicy -n monitoring-dev
 sudo kubectl get clusterrole monitoring-dev-kube-state-metrics
 sudo kubectl get clusterrolebinding monitoring-dev-kube-state-metrics
+sudo kubectl get clusterrole monitoring-dev-metrics-server-exporter
+sudo kubectl get clusterrolebinding monitoring-dev-metrics-server-exporter
 ```
 
 `NotFound` is expected for objects not yet installed. If any names already exist, inspect
@@ -72,6 +74,8 @@ sudo kubectl apply --dry-run=server -k k8s/dev/bootstrap
 ```
 
 Review the complete output. kube-state-metrics must have read-only cluster permissions.
+The Metrics Server exporter role must only list pods and nodes in the `metrics.k8s.io` API
+group; it must not grant access to core Kubernetes resources or the kubelet.
 The deployer Role is limited to this namespace and does not grant direct Secret access,
 cluster-scope access, or RBAC modification. The deployer can modify Deployments and select
 ServiceAccounts in the namespace, so its holder must be trusted with the monitoring

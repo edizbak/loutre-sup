@@ -39,3 +39,13 @@ groups:
           summary: Kubernetes node metrics are missing
           description: >-
             kube-state-metrics has not reported any Kubernetes node for five minutes.
+      - alert: MetricsServerExporterUnavailable
+        expr: metrics_server_exporter_up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Metrics Server API exporter is unavailable
+          description: >-
+            The Metrics Server API exporter has failed to collect metrics for five
+            minutes.

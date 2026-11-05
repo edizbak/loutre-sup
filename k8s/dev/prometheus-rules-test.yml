@@ -77,3 +77,19 @@ tests:
               description: >-
                 kube-state-metrics has not reported any Kubernetes node for five
                 minutes.
+  - interval: 1m
+    input_series:
+      - series: 'metrics_server_exporter_up{job="metrics-server-exporter"}'
+        values: "0+0x6"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MetricsServerExporterUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: metrics-server-exporter
+              severity: warning
+            exp_annotations:
+              summary: Metrics Server API exporter is unavailable
+              description: >-
+                The Metrics Server API exporter has failed to collect metrics for
+                five minutes.
