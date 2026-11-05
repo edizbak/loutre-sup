@@ -1,0 +1,23 @@
+groups:
+  - name: monitoring-health
+    rules:
+      - alert: MonitoringTargetDown
+        expr: up{job!="prometheus"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Monitoring target is down
+          description: >-
+            Scrape target {{ $labels.job }} at {{ $labels.instance }} has been
+            unavailable for five minutes.
+      - alert: KubernetesDeploymentUnavailable
+        expr: kube_deployment_spec_replicas > kube_deployment_status_replicas_available
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Kubernetes deployment has unavailable replicas
+          description: >-
+            Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has fewer
+            available replicas than desired for ten minutes.

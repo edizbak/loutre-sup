@@ -1,0 +1,48 @@
+rule_files:
+  - /workspace/prometheus-rules.yml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'up{job="kube-state-metrics", instance="kube-state-metrics"}'
+        values: "0+0x6"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MonitoringTargetDown
+        exp_alerts:
+          - exp_labels:
+              instance: kube-state-metrics
+              job: kube-state-metrics
+              severity: warning
+            exp_annotations:
+              summary: Monitoring target is down
+              description: >-
+                Scrape target kube-state-metrics at kube-state-metrics has been
+                unavailable for five minutes.
+  - interval: 1m
+    input_series:
+      - series: 'kube_deployment_spec_replicas{namespace="demo", deployment="web"}'
+        values: "3+0x11"
+      - series: 'kube_deployment_status_replicas_available{namespace="demo", deployment="web"}'
+        values: "1+0x11"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: KubernetesDeploymentUnavailable
+        exp_alerts:
+          - exp_labels:
+              deployment: web
+              namespace: demo
+              severity: warning
+            exp_annotations:
+              summary: Kubernetes deployment has unavailable replicas
+              description: >-
+                Deployment demo/web has fewer available replicas than desired
+                for ten minutes.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="kube-state-metrics", instance="kube-state-metrics"}'
+        values: "1+0x6"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MonitoringTargetDown
+        exp_alerts: []
