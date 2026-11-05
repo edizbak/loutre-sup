@@ -192,6 +192,18 @@ class StackContractTest(unittest.TestCase):
         self.assertIn("kube-state-metrics", script)
         self.assertIn("prometheus", script)
 
+    def test_readme_documents_staged_dev_deployment_and_rollback(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        for command in (
+            "kubectl apply --dry-run=server -k k8s/dev",
+            "kubectl apply -k k8s/dev",
+            "kubectl -n monitoring-dev rollout status",
+            "kubectl delete -k k8s/dev",
+        ):
+            self.assertIn(command, readme)
+        self.assertIn("explicit approval", readme.lower())
+        self.assertIn("NetworkPolicy", readme)
+
     def test_prometheus_scrapes_only_in_cluster_service_targets(self):
         config_path = STACK_DIR / "prometheus.yml"
         with config_path.open(encoding="utf-8") as prometheus_config:

@@ -12,6 +12,23 @@ Un premier profil de développement non déployé est présent dans `k8s/dev/`. 
 
 L'inventaire du serveur a été reçu et analysé. Il reste nécessaire de confirmer les choix de production avant tout apply, notamment stockage/rétention, exposition/authentification, ressources définitives, métriques hôte (node-exporter), sondes externes et destinataires d'alertes. Le profil n'est pas installé sur le cluster.
 
+## Prochaine étape : dry-run puis déploiement dev contrôlé
+
+La procédure opératoire détaillée est dans `README.md` (« Development deployment runbook »). Le prochain geste sur le serveur est uniquement le dry-run server-side :
+
+```sh
+kubectl apply --dry-run=server -k k8s/dev
+```
+
+Il faut transmettre et examiner sa sortie avant de continuer. Ce dry-run ne persiste pas les objets, mais ne valide ni le scheduling, ni le pull des images, ni les Secrets référencés.
+
+Avant le premier `kubectl apply -k k8s/dev`, les deux points d'arrêt sont :
+
+1. décider si les Services ClusterIP peuvent être joignables depuis les autres pods du cluster. Aucune NetworkPolicy n'était présente lors de l'inventaire; ClusterIP n'est pas une barrière d'accès. Si une isolation est requise, définir/tester les règles avec le CNI réel avant l'installation;
+2. créer le Secret `grafana-admin-credentials` hors Git par un mécanisme approuvé, sans en communiquer les données.
+
+Après approbation explicite du dry-run et de ces deux choix, l'opérateur applique le profil, attend les trois rollouts, vérifie les endpoints/cibles/règles avec des port-forwards temporaires, puis exécute `scripts/check-rbac.sh`. L'arrêt/rollback est documenté et ne doit supprimer que le namespace dédié s'il ne contient aucun workload étranger. Aucun accès cluster n'est utilisé par le présent dépôt/outillage local.
+
 ## Résultats de l'inventaire serveur
 
 L'inventaire en lecture seule fourni le 2026-11-05 confirme :
