@@ -12,22 +12,27 @@ Un premier profil de développement non déployé est présent dans `k8s/dev/`. 
 
 L'inventaire du serveur a été reçu et analysé. Il reste nécessaire de confirmer les choix de production avant tout apply, notamment stockage/rétention, exposition/authentification, ressources définitives, métriques hôte (node-exporter), sondes externes et destinataires d'alertes. Le profil n'est pas installé sur le cluster.
 
-## Prochaine étape : dry-run puis déploiement dev contrôlé
+Les manifests sont séparés en trois ensembles : `k8s/dev/namespace/` pour le namespace, `k8s/dev/bootstrap/` pour le RBAC cluster-scopé et le compte/role de déploiement limité au namespace, et `k8s/dev/` pour les workloads. Le déploiement normal ne nécessite donc pas le kubeconfig administrateur. Le compte de déploiement peut modifier les workloads du namespace et doit être considéré comme privilégié sur les Secrets qu'ils peuvent monter ainsi que sur les permissions de lecture de kube-state-metrics qu'il peut indirectement obtenir; il ne peut pas gérer directement les Secrets via l'API ni modifier le RBAC.
 
-La procédure opératoire détaillée est dans `README.md` (« Development deployment runbook »). Le prochain geste sur le serveur est uniquement le dry-run server-side :
+Le premier dry-run combinant la création du namespace et les objets namespacés a échoué comme attendu : un server-side dry-run ne persiste pas le namespace avant de valider les objets suivants. Aucun changement réel n'a été appliqué au cluster.
+
+## Prochaine étape : valider uniquement le namespace
+
+La procédure opératoire détaillée est dans `README.md` (« Development deployment runbook »). Depuis la racine du dépôt `loutre-sup`, le prochain geste sur le serveur est uniquement le dry-run server-side du namespace :
 
 ```sh
-kubectl apply --dry-run=server -k k8s/dev
+sudo kubectl apply --dry-run=server -k k8s/dev/namespace
 ```
 
-Il faut transmettre et examiner sa sortie avant de continuer. Ce dry-run ne persiste pas les objets, mais ne valide ni le scheduling, ni le pull des images, ni les Secrets référencés.
+Il faut transmettre et examiner sa sortie avant de créer le namespace réellement. Après accord explicite et création effective du namespace, le bootstrap RBAC sera à son tour dry-runné et examiné avec l'identité administrateur. Les manifests applicatifs seront ensuite dry-runnés puis appliqués avec le kubeconfig restreint `monitoring-dev-deployer`. Ces dry-runs ne valident ni le scheduling, ni le pull des images, ni les Secrets référencés.
 
-Avant le premier `kubectl apply -k k8s/dev`, les deux points d'arrêt sont :
+Avant le premier `kubectl apply -k k8s/dev`, les points d'arrêt sont :
 
 1. décider si les Services ClusterIP peuvent être joignables depuis les autres pods du cluster. Aucune NetworkPolicy n'était présente lors de l'inventaire; ClusterIP n'est pas une barrière d'accès. Si une isolation est requise, définir/tester les règles avec le CNI réel avant l'installation;
-2. créer le Secret `grafana-admin-credentials` hors Git par un mécanisme approuvé, sans en communiquer les données.
+2. créer le Secret `grafana-admin-credentials` hors Git par un mécanisme approuvé, sans en communiquer les données;
+3. examiner et approuver séparément le dry-run des workloads après mise en place du kubeconfig restreint.
 
-Après approbation explicite du dry-run et de ces deux choix, l'opérateur applique le profil, attend les trois rollouts, vérifie les endpoints/cibles/règles avec des port-forwards temporaires, puis exécute `scripts/check-rbac.sh`. L'arrêt/rollback est documenté et ne doit supprimer que le namespace dédié s'il ne contient aucun workload étranger. Aucun accès cluster n'est utilisé par le présent dépôt/outillage local.
+Après approbation explicite de chaque étape, l'opérateur applique le profil, attend les trois rollouts, vérifie les endpoints/cibles/règles avec des port-forwards temporaires, puis exécute `scripts/check-rbac.sh`. L'arrêt/rollback est documenté et ne doit supprimer que le namespace dédié s'il ne contient aucun workload étranger. Aucun accès cluster n'est utilisé par le présent dépôt/outillage local.
 
 ## Résultats de l'inventaire serveur
 

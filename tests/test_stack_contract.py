@@ -7,13 +7,15 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 STACK_DIR = ROOT / "k8s" / "dev"
+NAMESPACE_DIR = STACK_DIR / "namespace"
+BOOTSTRAP_DIR = STACK_DIR / "bootstrap"
 EXPECTED_NAMESPACE = "monitoring-dev"
 READ_ONLY_VERBS = {"get", "list", "watch"}
 
 
-def load_documents():
+def load_documents(directory):
     documents = []
-    for path in sorted(STACK_DIR.glob("*.yaml")):
+    for path in sorted(directory.glob("*.yaml")):
         if path.name == "kustomization.yaml":
             continue
         with path.open(encoding="utf-8") as manifest:
@@ -30,8 +32,12 @@ class StackContractTest(unittest.TestCase):
     def setUpClass(cls):
         with (STACK_DIR / "kustomization.yaml").open(encoding="utf-8") as manifest:
             cls.kustomization = yaml.safe_load(manifest)
-        cls.documents = load_documents()
+        cls.documents = load_documents(STACK_DIR)
+        cls.namespace_documents = load_documents(NAMESPACE_DIR)
+        cls.bootstrap_documents = load_documents(BOOTSTRAP_DIR)
         cls.objects = [document for _, document in cls.documents]
+        cls.objects.extend(document for _, document in cls.namespace_documents)
+        cls.objects.extend(document for _, document in cls.bootstrap_documents)
         cls.by_kind = {}
         for document in cls.objects:
             cls.by_kind.setdefault(document["kind"], []).append(document)
@@ -48,11 +54,35 @@ class StackContractTest(unittest.TestCase):
 
     def test_all_objects_are_scoped_to_the_dev_namespace(self):
         self.assertEqual(EXPECTED_NAMESPACE, self.kustomization["namespace"])
-        for document in self.objects:
-            if document["kind"] == "Namespace":
-                self.assertEqual(EXPECTED_NAMESPACE, document["metadata"]["name"])
-            elif document["metadata"].get("namespace"):
-                self.assertEqual(EXPECTED_NAMESPACE, document["metadata"]["namespace"])
+        self.assertTrue(self.documents)
+        for _, document in self.documents:
+            namespace = document["metadata"].get("namespace")
+            self.assertIn(namespace, (None, EXPECTED_NAMESPACE))
+        namespace = self.namespace_documents[0][1]
+        self.assertEqual(EXPECTED_NAMESPACE, namespace["metadata"]["name"])
+        self.assertEqual("Namespace", namespace["kind"])
+
+    def test_namespace_and_rbac_bootstrap_are_separate_from_workloads(self):
+        self.assertEqual(
+            {"namespace.yaml"},
+            {
+                path.name
+                for path in NAMESPACE_DIR.glob("*.yaml")
+                if path.name != "kustomization.yaml"
+            },
+        )
+        bootstrap_kinds = {document["kind"] for _, document in self.bootstrap_documents}
+        self.assertEqual(
+            {"ClusterRole", "ClusterRoleBinding", "Role", "RoleBinding", "ServiceAccount"},
+            bootstrap_kinds,
+        )
+        self.assertFalse(
+            {"Deployment", "Service", "ConfigMap", "Secret"} & bootstrap_kinds
+        )
+        self.assertFalse(
+            {"Namespace", "ClusterRole", "ClusterRoleBinding", "Role", "RoleBinding"}
+            & {document["kind"] for _, document in self.documents}
+        )
 
     def test_stack_is_not_publicly_exposed(self):
         for service in self.by_kind.get("Service", []):
@@ -63,13 +93,35 @@ class StackContractTest(unittest.TestCase):
         self.assertEqual([], self.by_kind.get("Ingress", []))
 
     def test_kube_state_metrics_permissions_are_read_only(self):
-        roles = self.by_kind.get("ClusterRole", []) + self.by_kind.get("Role", [])
+        roles = self.by_kind.get("ClusterRole", [])
         self.assertTrue(roles, "kube-state-metrics needs an explicit read-only role")
         for role in roles:
             for rule in role["rules"]:
                 self.assertTrue(set(rule["verbs"]).issubset(READ_ONLY_VERBS))
                 self.assertTrue(rule.get("resources"))
                 self.assertNotIn("secrets", rule["resources"])
+        deployer_role = next(
+            role
+            for role in self.by_kind.get("Role", [])
+            if role["metadata"]["name"] == "monitoring-dev-deployer"
+        )
+        self.assertIn(
+            {
+                "apiGroups": [""],
+                "resources": ["pods/portforward"],
+                "verbs": ["create"],
+            },
+            deployer_role["rules"],
+        )
+        self.assertTrue(
+            all("secrets" not in rule["resources"] for rule in deployer_role["rules"])
+        )
+        self.assertFalse(
+            any(
+                rule["apiGroups"] == ["rbac.authorization.k8s.io"]
+                for rule in deployer_role["rules"]
+            )
+        )
 
     def test_kube_state_metrics_only_enables_authorized_resources(self):
         deployment = next(
@@ -195,14 +247,22 @@ class StackContractTest(unittest.TestCase):
     def test_readme_documents_staged_dev_deployment_and_rollback(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         for command in (
+            "kubectl apply --dry-run=server -k k8s/dev/namespace",
+            "kubectl apply --dry-run=server -k k8s/dev/bootstrap",
             "kubectl apply --dry-run=server -k k8s/dev",
             "kubectl apply -k k8s/dev",
             "kubectl -n monitoring-dev rollout status",
-            "kubectl delete -k k8s/dev",
+            "kubectl delete -k k8s/dev/namespace",
         ):
             self.assertIn(command, readme)
         self.assertIn("explicit approval", readme.lower())
         self.assertIn("NetworkPolicy", readme)
+        self.assertIn("monitoring-dev-deployer", readme)
+        self.assertIn("kubectl create token monitoring-dev-deployer", readme)
+        self.assertIn("monitoring-dev.kubeconfig", readme)
+        self.assertIn("--duration=1h", readme)
+        self.assertIn("administrator certificate/key is not copied", readme)
+        self.assertIn("kubectl auth can-i create pods/portforward", readme)
 
     def test_prometheus_scrapes_only_in_cluster_service_targets(self):
         config_path = STACK_DIR / "prometheus.yml"
