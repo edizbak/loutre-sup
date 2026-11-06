@@ -206,9 +206,13 @@ approval, apply the stack:
 kubectl apply -k k8s/dev
 kubectl -n monitoring-dev rollout status deployment/prometheus --timeout=180s
 kubectl -n monitoring-dev rollout status deployment/kube-state-metrics --timeout=180s
-kubectl -n monitoring-dev rollout status deployment/grafana --timeout=180s
+kubectl -n monitoring-dev rollout status deployment/grafana --timeout=360s
 kubectl -n monitoring-dev get pods,svc,endpoints
 ```
+
+Grafana's startup probe allows up to five minutes for its first database migrations.
+kube-state-metrics readiness checks its metrics endpoint on port 8080, while liveness
+checks that the metrics port accepts connections.
 
 If a rollout fails, stop and inspect before retrying:
 

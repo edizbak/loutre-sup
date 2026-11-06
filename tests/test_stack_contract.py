@@ -156,6 +156,23 @@ class StackContractTest(unittest.TestCase):
         }
         self.assertEqual(enabled_resources, granted_resources)
 
+    def test_kube_state_metrics_probes_use_supported_endpoints(self):
+        deployment = next(
+            item
+            for item in self.by_kind.get("Deployment", [])
+            if item["metadata"]["name"] == "kube-state-metrics"
+        )
+        container = deployment["spec"]["template"]["spec"]["containers"][0]
+
+        self.assertEqual(
+            {"path": "/metrics", "port": "metrics"},
+            container["readinessProbe"]["httpGet"],
+        )
+        self.assertEqual(
+            {"port": "metrics"},
+            container["livenessProbe"]["tcpSocket"],
+        )
+
     def test_images_are_version_pinned_and_resources_are_bounded(self):
         workloads = [
             document
@@ -217,6 +234,21 @@ class StackContractTest(unittest.TestCase):
         environment = {entry["name"]: entry for entry in grafana["env"]}
         self.assertEqual("false", environment["GF_AUTH_ANONYMOUS_ENABLED"]["value"])
         self.assertEqual("false", environment["GF_USERS_ALLOW_SIGN_UP"]["value"])
+
+    def test_grafana_startup_probe_allows_initial_database_migrations(self):
+        grafana = next(
+            container
+            for deployment in self.by_kind.get("Deployment", [])
+            if deployment["metadata"]["name"] == "grafana"
+            for container in deployment["spec"]["template"]["spec"]["containers"]
+        )
+
+        self.assertEqual(
+            {"path": "/api/health", "port": "http"},
+            grafana["startupProbe"]["httpGet"],
+        )
+        self.assertEqual(10, grafana["startupProbe"]["periodSeconds"])
+        self.assertEqual(30, grafana["startupProbe"]["failureThreshold"])
 
     def test_inventory_script_is_read_only(self):
         script_path = ROOT / "scripts" / "inventory.sh"

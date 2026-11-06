@@ -125,13 +125,13 @@ spec:
               containerPort: 8081
           readinessProbe:
             httpGet:
-              path: /healthz
-              port: 8081
+              path: /metrics
+              port: metrics
             periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8081
+            tcpSocket:
+              port: metrics
             periodSeconds: 20
           resources:
             requests:
@@ -288,16 +288,25 @@ spec:
               value: "false"
             - name: GF_AUTH_ANONYMOUS_ENABLED
               value: "false"
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /api/health
               port: http
             periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /api/health
               port: http
             periodSeconds: 20
+            timeoutSeconds: 5
           resources:
             requests:
               cpu: 100m
