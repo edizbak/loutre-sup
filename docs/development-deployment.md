@@ -164,9 +164,32 @@ kubectl auth can-i create pods --subresource=portforward -n monitoring-dev
 
 The expected result is `yes`. RBAC changes do not require a new token; do not generate a new
 kubeconfig just for this permission update. If token creation or permission checks fail, stop
-and report the error without sharing the token. Tokens expire after one hour; repeat the
-kubeconfig creation procedure to renew one. Because the deployer can change workloads and
+and report the error without sharing the token. Because the deployer can change workloads and
 choose ServiceAccounts, it is not suitable for untrusted or multi-tenant users.
+
+### Renew an expired deployer token
+
+The ServiceAccount token expires after one hour. Renew only the credential in the existing
+restricted kubeconfig; do not recreate or overwrite that file. Run this in the normal
+interactive shell with shell tracing disabled:
+
+```sh
+sudo -v
+DEPLOYER_KUBECONFIG="$HOME/.kube/monitoring-dev.kubeconfig"
+TOKEN=$(sudo kubectl create token monitoring-dev-deployer \
+  -n monitoring-dev --duration=1h)
+KUBECONFIG="$DEPLOYER_KUBECONFIG" kubectl config set-credentials \
+  monitoring-dev-deployer --token="$TOKEN"
+unset TOKEN
+
+export KUBECONFIG="$DEPLOYER_KUBECONFIG"
+kubectl config current-context
+kubectl auth can-i patch deployments -n monitoring-dev
+```
+
+The context should remain `monitoring-dev` and the permission check should return `yes`.
+Do not print, paste, or log the token. If renewal or the permission check fails, stop and
+investigate before retrying cluster operations.
 
 ## 5. Create the Grafana admin Secret
 
