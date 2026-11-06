@@ -9,10 +9,41 @@ check() {
   scope=${5:-}
 
   if [ "$scope" = all-namespaces ]; then
-    actual=$(kubectl auth can-i "$verb" "$resource" --all-namespaces --as="$identity")
+    if actual=$(kubectl auth can-i "$verb" "$resource" \
+      --all-namespaces --as="$identity"); then
+      command_status=0
+    else
+      command_status=$?
+    fi
   else
-    actual=$(kubectl auth can-i "$verb" "$resource" --as="$identity")
+    if actual=$(kubectl auth can-i "$verb" "$resource" --as="$identity"); then
+      command_status=0
+    else
+      command_status=$?
+    fi
   fi
+
+  case "$actual" in
+    yes)
+      [ "$command_status" -eq 0 ] || {
+        printf 'FAIL: kubectl auth can-i %s %s exited with status %s\n' \
+          "$verb" "$resource" "$command_status" >&2
+        exit 1
+      }
+      ;;
+    no)
+      [ "$command_status" -eq 1 ] || {
+        printf 'FAIL: kubectl auth can-i %s %s exited with status %s\n' \
+          "$verb" "$resource" "$command_status" >&2
+        exit 1
+      }
+      ;;
+    *)
+      printf 'FAIL: kubectl auth can-i %s %s returned unexpected output: %s\n' \
+        "$verb" "$resource" "$actual" >&2
+      exit 1
+      ;;
+  esac
 
   if [ "$actual" != "$expected" ]; then
     printf 'FAIL: %s %s %s: expected %s, got %s\n' \
@@ -42,8 +73,35 @@ check_metrics() {
   verb=$1
   resource=$2
   expected=$3
-  actual=$(kubectl auth can-i "$verb" "$resource" \
-    --all-namespaces --as="$METRICS_EXPORTER")
+  if actual=$(kubectl auth can-i "$verb" "$resource" \
+    --all-namespaces --as="$METRICS_EXPORTER"); then
+    command_status=0
+  else
+    command_status=$?
+  fi
+
+  case "$actual" in
+    yes)
+      [ "$command_status" -eq 0 ] || {
+        printf 'FAIL: kubectl auth can-i %s %s exited with status %s\n' \
+          "$verb" "$resource" "$command_status" >&2
+        exit 1
+      }
+      ;;
+    no)
+      [ "$command_status" -eq 1 ] || {
+        printf 'FAIL: kubectl auth can-i %s %s exited with status %s\n' \
+          "$verb" "$resource" "$command_status" >&2
+        exit 1
+      }
+      ;;
+    *)
+      printf 'FAIL: kubectl auth can-i %s %s returned unexpected output: %s\n' \
+        "$verb" "$resource" "$actual" >&2
+      exit 1
+      ;;
+  esac
+
   if [ "$actual" != "$expected" ]; then
     printf 'FAIL: metrics exporter %s %s: expected %s, got %s\n' \
       "$verb" "$resource" "$expected" "$actual" >&2

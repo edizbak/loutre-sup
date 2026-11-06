@@ -1,3 +1,6 @@
+import os
+import subprocess
+import tempfile
 import unittest
 import json
 from pathlib import Path
@@ -282,6 +285,45 @@ class StackContractTest(unittest.TestCase):
         self.assertIn("metrics.k8s.io", script)
         self.assertIn("check_metrics watch pods.metrics.k8s.io no", script)
         self.assertIn("prometheus", script)
+
+    def test_rbac_check_script_accepts_expected_denials(self):
+        stub = """#!/usr/bin/env python3
+import sys
+
+args = sys.argv[1:]
+identity = next(arg.removeprefix("--as=") for arg in args if arg.startswith("--as="))
+verb, resource = args[2], args[3]
+if identity.endswith(":kube-state-metrics"):
+    allowed = verb == "list" and resource in {
+        "pods", "deployments", "nodes", "persistentvolumes"
+    }
+elif identity.endswith(":metrics-server-exporter"):
+    allowed = verb == "list" and resource in {
+        "pods.metrics.k8s.io", "nodes.metrics.k8s.io"
+    }
+else:
+    allowed = False
+
+print("yes" if allowed else "no")
+sys.exit(0 if allowed else 1)
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            kubectl = Path(temp_dir) / "kubectl"
+            kubectl.write_text(stub, encoding="utf-8")
+            kubectl.chmod(0o755)
+            environment = os.environ.copy()
+            environment["PATH"] = f"{temp_dir}{os.pathsep}{environment['PATH']}"
+            result = subprocess.run(
+                ["sh", str(ROOT / "scripts" / "check-rbac.sh")],
+                capture_output=True,
+                check=False,
+                env=environment,
+                text=True,
+            )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(16, result.stdout.count("PASS:"))
+        self.assertNotIn("FAIL:", result.stdout)
 
     def test_readme_documents_staged_dev_deployment_and_rollback(self):
         readme = (ROOT / "docs" / "development-deployment.md").read_text(
